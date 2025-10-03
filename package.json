@@ -4,9 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview"
+    "start": "vite",
+    "live": "vite preview",
+    "build": "tsc && vite build"
   },
   "devDependencies": {
     "typescript": "~5.9.3",
@@ -16,6 +16,6 @@
     "vite": "npm:rolldown-vite@7.1.14"
   },
   "dependencies": {
-    "bitecs": "^0.3.40"
+    "bitecs": "github:NateTheGreatt/bitECS"
   }
 }
