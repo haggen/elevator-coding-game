@@ -2,15 +2,14 @@ import "./style.css";
 
 import {
   addComponent,
-  addComponents,
   addEntity,
   createRelation,
   createWorld,
   getRelationTargets,
+  Hierarchy,
   Not,
   query,
   removeComponent,
-  removeComponents,
   removeEntity,
 } from "bitecs";
 
@@ -44,6 +43,16 @@ const world = createWorld({
     Building: {
       floors: [] as number[],
     },
+    Graphical: {
+      x: [] as number[],
+      y: [] as number[],
+      w: [] as number[],
+      h: [] as number[],
+      r: [] as number[],
+      g: [] as number[],
+      b: [] as number[],
+      a: [] as number[],
+    },
   },
   time: {
     elapsed: 0,
@@ -60,32 +69,77 @@ const world = createWorld({
 
 type World = typeof world;
 
+function setGraphics(
+  world: World,
+  entity: number,
+  {
+    x = 0,
+    y = 0,
+    w = 0,
+    h = 0,
+    r = 0,
+    g = 0,
+    b = 0,
+    a = 1,
+  }: {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    r: number;
+    g: number;
+    b: number;
+    a: number;
+  }
+) {
+  const { Graphical } = world.components;
+  Graphical.x[entity] = x;
+  Graphical.y[entity] = y;
+  Graphical.w[entity] = w;
+  Graphical.h[entity] = h;
+  Graphical.r[entity] = r;
+  Graphical.g[entity] = g;
+  Graphical.b[entity] = b;
+  Graphical.a[entity] = a;
+}
+
 function passengerLifeCycleSystem(world: World) {
-  const { Passenger, Floor, Acting } = world.components;
+  const { Passenger, Floor, Acting, Graphical } = world.components;
 
   for (const passenger of query(world, [Passenger, Not(Acting)])) {
     if (Passenger.state[passenger] === "exiting") {
       const [parent] = getRelationTargets(world, passenger, ChildOf);
-      removeComponents(world, passenger, [Passenger, ChildOf(parent)]);
+      removeComponent(world, passenger, Graphical);
+      removeComponent(world, passenger, Passenger);
+      removeComponent(world, passenger, ChildOf(parent));
       removeEntity(world, passenger);
     }
   }
 
   const passengers = query(world, [Passenger]);
 
-  if (passengers.length < 10) {
+  for (let i = passengers.length; i < 10; i++) {
     const floors = query(world, [Floor]);
 
     const floor = floors[random(floors.length)];
     const destinations = floors.filter((f) => f !== floor);
     const destination = destinations[random(destinations.length)];
     const passenger = addEntity(world);
-    addComponents(world, passenger, [
-      Passenger,
-      ChildOf(floor),
-      Destination(destination),
-    ]);
+    addComponent(world, passenger, Passenger);
     Passenger.state[passenger] = "waiting";
+    addComponent(world, passenger, Graphical);
+    setGraphics(world, passenger, {
+      x: 0,
+      y: 0,
+      w: 10,
+      h: 10,
+      r: 0,
+      g: 0,
+      b: 255,
+      a: 1,
+    });
+    addComponent(world, passenger, ChildOf(floor));
+    addComponent(world, passenger, Destination(destination));
   }
 }
 
@@ -99,22 +153,67 @@ function passengerBehaviorSystem(world: World) {
         const [elevator] = query(world, [Elevator, ChildOf(floor)]);
 
         if (Elevator.state[elevator] === "open") {
-          removeComponents(world, passenger, [ChildOf(floor)]);
-          addComponents(world, passenger, [ChildOf(elevator), Acting]);
+          removeComponent(world, passenger, ChildOf(floor));
+          addComponent(world, passenger, Acting);
+          addComponent(world, passenger, ChildOf(elevator));
           Passenger.state[passenger] = "boarding";
           Acting.start[passenger] = world.time.now;
           Acting.duration[passenger] = 2000;
           Acting.progression[passenger] = 0;
         }
+        break;
+      }
+      case "boarding": {
+        Passenger.state[passenger] = "riding";
+        break;
       }
     }
   }
 }
 
 function elevatorBehaviorSystem(world: World) {
-  const { Acting, Elevator, Floor } = world.components;
+  const { Acting, Elevator, Passenger, Floor } = world.components;
 
   for (const elevator of query(world, [Elevator, Not(Acting)])) {
+    switch (Elevator.state[elevator]) {
+      case "idle": {
+        const [floor] = getRelationTargets(world, elevator, ChildOf);
+        const hasPassengersWaiting = query(world, [
+          Passenger,
+          ChildOf(floor),
+        ]).some((p) => Passenger.state[p] === "waiting");
+
+        if (hasPassengersWaiting) {
+          Elevator.state[elevator] = "opening";
+          addComponent(world, elevator, Acting);
+          Acting.start[elevator] = world.time.now;
+          Acting.duration[elevator] = 1000;
+          Acting.progression[elevator] = 0;
+        }
+        break;
+      }
+      case "opening": {
+        Elevator.state[elevator] = "open";
+        removeComponent(world, elevator, Acting);
+        break;
+      }
+      case "open": {
+        const [floor] = getRelationTargets(world, elevator, ChildOf);
+        const hasPassengersBoarding = query(world, [
+          Passenger,
+          ChildOf(floor),
+        ]).some((p) => Passenger.state[p] === "boarding");
+
+        if (!hasPassengersBoarding) {
+          Elevator.state[elevator] = "idle";
+          addComponent(world, elevator, Acting);
+          Acting.start[elevator] = world.time.now;
+          Acting.duration[elevator] = 1000;
+          Acting.progression[elevator] = 0;
+        }
+        break;
+      }
+    }
   }
 }
 
@@ -133,21 +232,45 @@ function actingSystem(world: World) {
 }
 
 function initialize(world: World) {
-  const { Building, Elevator, Floor } = world.components;
+  const { Building, Elevator, Floor, Graphical } = world.components;
 
   const building = addEntity(world);
   addComponent(world, building, Building);
 
   for (let n = 0; n < 5; n++) {
     const floor = addEntity(world);
-    addComponents(world, floor, [Floor, ChildOf(building)]);
+    addComponent(world, floor, Floor);
     Floor.number[floor] = n;
+    addComponent(world, floor, Graphical);
+    setGraphics(world, floor, {
+      x: 0,
+      y: n * 61,
+      w: 800,
+      h: 60,
+      r: 200,
+      g: 200,
+      b: 200,
+      a: 1,
+    });
+    addComponent(world, floor, ChildOf(building));
   }
 
   const [floor] = query(world, [Floor]);
   const elevator = addEntity(world);
-  addComponents(world, elevator, [Elevator, ChildOf(floor)]);
+  addComponent(world, elevator, Elevator);
   Elevator.state[elevator] = "idle";
+  addComponent(world, elevator, Graphical);
+  setGraphics(world, elevator, {
+    x: 200,
+    y: 0,
+    w: 60,
+    h: 60,
+    r: 250,
+    g: 230,
+    b: 200,
+    a: 1,
+  });
+  addComponent(world, elevator, ChildOf(floor));
 }
 
 function update(world: World) {
@@ -166,91 +289,31 @@ function update(world: World) {
 
 const ctx = document.querySelector<HTMLCanvasElement>("#app")?.getContext("2d");
 
-function getElevatorStateColor(
-  state: World["components"]["Elevator"]["state"][number]
-) {
-  switch (state) {
-    case "idle":
-      return "blue";
-    case "moving":
-      return "red";
-    case "open":
-      return "green";
-    default:
-      return "black";
-  }
-}
-
-function getPassengerStateColor(
-  state: World["components"]["Passenger"]["state"][number]
-) {
-  switch (state) {
-    case "waiting":
-      return "blue";
-    case "boarding":
-      return "lime";
-    case "riding":
-      return "green";
-    case "exiting":
-      return "yellow";
-    default:
-      return "black";
-  }
-}
-
 function render(world: World) {
   if (!ctx) {
     return;
   }
 
-  const { Passenger, Elevator, Floor, Acting } = world.components;
+  const { Graphical } = world.components;
 
-  ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-  ctx.fillStyle = "white";
-  ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+  for (const entity of query(world, [Graphical, Hierarchy(ChildOf)])) {
+    const [parent] = getRelationTargets(world, entity, ChildOf);
 
-  for (const floor of query(world, [Floor])) {
-    const f = Floor.number[floor];
-    ctx.fillStyle = "#ccc";
-    ctx.fillRect(0, ctx.canvas.height - f * 61 - 60, ctx.canvas.width, 60);
+    ctx.save();
 
-    const passengers = query(world, [Passenger, ChildOf(floor)]);
-
-    for (let i = 0; i < passengers.length; i++) {
-      const passenger = passengers[i];
-      ctx.fillStyle = getPassengerStateColor(Passenger.state[passenger]);
-      ctx.beginPath();
-      ctx.arc(i * 20 + 20, ctx.canvas.height - f * 61 - 30, 10, 0, Math.PI * 2);
-      ctx.fill();
-
-      if (Passenger.state[passenger] === "waiting") {
-        const [destination] = getRelationTargets(world, passenger, Destination);
-        if (destination) {
-          const d = Floor.number[destination];
-          ctx.fillStyle = "white";
-          ctx.strokeStyle = "black";
-          ctx.lineWidth = 0.1;
-          ctx.font = "12px monospace";
-          ctx.fillText(
-            String(d) || "-",
-            i * 20 + 16,
-            ctx.canvas.height - f * 61 - 26
-          );
-          ctx.strokeText(
-            String(d) || "-",
-            i * 20 + 16,
-            ctx.canvas.height - f * 61 - 26
-          );
-        }
-      }
+    if (parent) {
+      ctx.translate(Graphical.x[parent], Graphical.y[parent]);
     }
-  }
 
-  for (const elevator of query(world, [Elevator])) {
-    const [floor] = getRelationTargets(world, elevator, ChildOf);
-    const n = Floor.number[floor];
-    ctx.fillStyle = getElevatorStateColor(Elevator.state[elevator]);
-    ctx.fillRect(200, ctx.canvas.height - n * 60 - 60 - n, 60, 60);
+    ctx.fillStyle = `rgba(${Graphical.r[entity]}, ${Graphical.g[entity]}, ${Graphical.b[entity]}, ${Graphical.a[entity]})`;
+    ctx.fillRect(
+      Graphical.x[entity],
+      Graphical.y[entity],
+      Graphical.w[entity],
+      Graphical.h[entity]
+    );
+
+    ctx.restore();
   }
 
   world.rendering.count += 1;
@@ -259,7 +322,7 @@ function render(world: World) {
 initialize(world);
 
 requestAnimationFrame(function animate() {
-  render(world);
   update(world);
+  render(world);
   requestAnimationFrame(animate);
 });
