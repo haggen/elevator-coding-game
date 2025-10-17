@@ -1,4 +1,4 @@
-import { createRelation } from "bitecs";
+import { createRelation, createWorld, type World } from "bitecs";
 
 /**
  * Utility type to extract data from a component definition.
@@ -8,21 +8,40 @@ export type Data<C extends { [K: string]: unknown[] }> = {
 };
 
 /**
- * World time stats.
+ * Time stats type.
  */
-export const time = {
-  now: performance.now(),
-  delta: 0,
-  elapsed: 0,
+export type Time = {
+  now: number;
+  delta: number;
+  elapsed: number;
 };
 
 /**
- * Simulation stats.
+ * Simulation statistics.
  */
-export const simulation = {
-  delta: 0,
-  count: 0,
+export type SimulationStats = {
+  delta: number;
+  count: number;
 };
+
+/**
+ * Compile a new world from initializers.
+ */
+export function compileWorld<T extends ((world: any) => void)[]>(
+  ...initializers: T
+) {
+  const world = createWorld({
+    components: {},
+  });
+
+  for (const initialize of initializers) {
+    initialize(world);
+  }
+
+  return world as T extends ((world: World<infer U>) => void)[]
+    ? World<U>
+    : never;
+}
 
 /**
  * For non specific entity graphs.
@@ -32,49 +51,19 @@ export const ChildOf = createRelation({
 });
 
 /**
- * Used to link passengers to the floor they want to go to.
+ * World time statistics.
  */
-export const DestinedTo = createRelation({ exclusive: true });
-
-/**
- * Get a random number between max (exclusive) and min (inclusive).
- */
-export function random(max: number, min = 0) {
-  return Math.floor(Math.random() * (max - min)) + min;
-}
-
-/**
- * Common curve functions.
- */
-const curves = {
-  // Maintains constant speed throughout the completion.
-  linear: (x: number) => x,
-  // Starts slowly and accelerates towards the end.
-  quadratic: (x: number) => x * x,
-  // Starts very slowly and accelerates rapidly towards the end.
-  cubic: (x: number) => x * x * x,
-  // Starts quickly and gradually decelerates.
-  decay: (x: number) => 1 - Math.pow(1 - x, 2),
-  // Starts and ends slowly with acceleration in the middle.
-  sigmoid: (x: number) =>
-    x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2,
-} as const;
-
-/**
- * Interpolate between min and max following a curve function.
- */
-export function interpolate(
-  min: number,
-  max: number,
-  ratio: number,
-  curve: (x: number) => number = curves.linear
+export function initialize(
+  world: World<{ time: Time; simulation: SimulationStats }>
 ) {
-  return min + (max - min) * curve(clamp(0, 1, ratio));
-}
+  world.time = {
+    now: performance.now(),
+    delta: 0,
+    elapsed: 0,
+  };
 
-/**
- * Clamp a value between a minimum and maximum.
- */
-export function clamp(min: number, max: number, value: number) {
-  return Math.min(Math.max(value, min), max);
+  world.simulation = {
+    delta: 0,
+    count: 0,
+  };
 }

@@ -1,115 +1,162 @@
 import {
   addComponent,
   addEntity,
+  createRelation,
   getEntityComponents,
   getRelationTargets,
   Not,
+  observe,
+  onAdd,
+  onSet,
   query,
   removeComponent,
   removeComponents,
   removeEntity,
+  setComponent,
   type EntityId,
   type World,
 } from "bitecs";
-import { setActing, type Acting } from "./acting";
-import { Elevator, setElevator } from "./elevator";
-import { Floor } from "./floor";
-import { Graphical, setGraphical } from "./graphic";
-import { ChildOf, DestinedTo, random, time, type Data } from "./shared";
+import { type Acting } from "./acting";
+import { type Elevator } from "./elevator";
+import { type Floor } from "./floor";
+import { type Graphic } from "./graphic";
+import { random } from "./math";
+import { ChildOf, type Data, type Time } from "./shared";
 
 /**
- * Component to represent a passenger.
+ * Passenger component.
  */
-export const Passenger = {
-  state: [] as ("waiting" | "boarding" | "riding" | "exiting")[],
+export type Passenger = {
+  index: number[];
+  state: ("waiting" | "boarding" | "riding" | "exiting")[];
 };
 
 /**
- * Add or update Passenger component on an entity.
+ * Relationship for passenger's destination floor.
  */
-export function setPassenger(
-  world: World<{ components: { Passenger: typeof Passenger } }>,
-  entityId: EntityId,
-  data: Partial<Data<typeof Passenger>>
+export const GoingTo = createRelation({ exclusive: true });
+
+/**
+ * Module initialization.
+ */
+export function initialize(
+  world: World<{ components: { Passenger: Passenger } }>
 ) {
-  const { Passenger } = world.components;
+  const Passenger: Passenger = {
+    index: [],
+    state: [],
+  };
 
-  addComponent(world, entityId, Passenger);
+  world.components.Passenger = Passenger;
 
-  Passenger.state[entityId] =
-    data.state ?? Passenger.state[entityId] ?? "waiting";
+  observe(world, onAdd(Passenger), (passengerId: EntityId) => {
+    Passenger.index[passengerId] = 0;
+    Passenger.state[passengerId] = "waiting";
+  });
+
+  observe(
+    world,
+    onSet(Passenger),
+    (passengerId: EntityId, data: Partial<Data<Passenger>>) => {
+      for (const [key, value] of Object.entries(data)) {
+        Passenger[key as keyof Passenger][passengerId] = value;
+      }
+    }
+  );
 }
 
 /**
- * Handles spawning and reaping passengers.
+ * Reap passengers that have finished their lifecycle.
  */
-export function managePassengerLifecycle(
+export function handlePassengerReaping(
   world: World<{
     components: {
-      Passenger: typeof Passenger;
-      Elevator: typeof Elevator;
-      Floor: typeof Floor;
-      Acting: typeof Acting;
-      Graphical: typeof Graphical;
+      Passenger: Passenger;
+      Acting: Acting;
     };
-    time: typeof time;
   }>
 ) {
-  const { Passenger, Floor, Acting } = world.components;
+  const { Passenger, Acting } = world.components;
 
   for (const passengerId of query(world, [Passenger, Not(Acting)])) {
-    switch (Passenger.state[passengerId]) {
-      case "exiting": {
-        const [parentId] = getRelationTargets(world, passengerId, ChildOf);
-        removeComponent(world, passengerId, ChildOf(parentId));
-
-        removeComponents(
-          world,
-          passengerId,
-          ...getEntityComponents(world, passengerId)
-        );
-        removeEntity(world, passengerId);
-        break;
-      }
+    if (Passenger.state[passengerId] !== "exiting") {
+      continue;
     }
+
+    const [parentId] = getRelationTargets(world, passengerId, ChildOf);
+    removeComponent(world, passengerId, ChildOf(parentId));
+
+    const [floorId] = getRelationTargets(world, passengerId, GoingTo);
+    removeComponent(world, passengerId, GoingTo(floorId));
+
+    removeComponents(
+      world,
+      passengerId,
+      ...getEntityComponents(world, passengerId)
+    );
+
+    removeEntity(world, passengerId);
   }
+}
+
+/**
+ * Spawn new passengers.
+ */
+export function handlePassengerSpawning(
+  world: World<{
+    components: {
+      Passenger: Passenger;
+      Elevator: Elevator;
+      Floor: Floor;
+      Acting: Acting;
+      Graphic: Graphic;
+    };
+    time: Time;
+  }>
+) {
+  const { Elevator, Passenger, Floor, Acting, Graphic } = world.components;
 
   const passengerIds = query(world, [Passenger]);
-  const floorIds = query(world, [Floor]);
 
-  for (let i = passengerIds.length; i < 100; i++) {
-    const floorId = floorIds[random(floorIds.length)];
-    const destinationIds = floorIds.filter((f) => f !== floorId);
-    const destinationId = destinationIds[random(destinationIds.length)];
-    const index = query(world, [Passenger, ChildOf(floorId)]).length;
-
-    const passengerId = addEntity(world);
-
-    addComponent(world, passengerId, ChildOf(floorId));
-    addComponent(world, passengerId, DestinedTo(destinationId));
-
-    setPassenger(world, passengerId, {
-      state: "waiting",
-    });
-
-    setGraphical(world, passengerId, {
-      position: [(10 + 2) * index, 0],
-      size: [10, 10],
-      color: [50, 50, 255, 1],
-    });
-
-    setActing(world, passengerId, {
-      duration: 1000,
-    });
-
-    const [elevatorId] = query(world, [Elevator]);
-
-    if (elevatorId) {
-      setElevator(world, elevatorId, {
-        queue: [...Elevator.queue[elevatorId], Floor.index[floorId]],
-      });
-    }
+  if (passengerIds.length >= 100) {
+    return;
   }
+
+  if (random(1000) > 10) {
+    return;
+  }
+
+  const floorIds = query(world, [Floor]);
+  const floorId = floorIds[random(floorIds.length)];
+  const destinationIds = floorIds.filter((f) => f !== floorId);
+  const destinationId = destinationIds[random(destinationIds.length)];
+  const index = query(world, [Passenger, ChildOf(floorId)]).length;
+
+  const passengerId = addEntity(world);
+
+  addComponent(world, passengerId, ChildOf(floorId));
+  addComponent(world, passengerId, GoingTo(destinationId));
+
+  setComponent(world, passengerId, Passenger, {
+    index: index,
+    state: "waiting",
+  });
+
+  addComponent(world, passengerId, Graphic);
+
+  setComponent(world, passengerId, Acting, {
+    duration: 1000,
+  });
+
+  const [elevatorId] = query(world, [Elevator]);
+
+  if (!elevatorId) {
+    throw new Error("Expected at least 1 elevator");
+  }
+
+  setComponent(world, elevatorId, Elevator, {
+    queue: [...Elevator.queue[elevatorId], Floor.index[floorId]],
+  });
 }
 
 /**
@@ -118,12 +165,12 @@ export function managePassengerLifecycle(
 export function updatePassengerState(
   world: World<{
     components: {
-      Passenger: typeof Passenger;
-      Acting: typeof Acting;
-      Elevator: typeof Elevator;
-      Floor: typeof Floor;
+      Passenger: Passenger;
+      Acting: Acting;
+      Elevator: Elevator;
+      Floor: Floor;
     };
-    time: typeof time;
+    time: Time;
   }>
 ) {
   const { Acting, Passenger, Elevator, Floor } = world.components;
@@ -142,7 +189,7 @@ export function updatePassengerState(
           break;
         }
 
-        setPassenger(world, passengerId, {
+        setComponent(world, passengerId, Passenger, {
           state: "boarding",
         });
 
@@ -150,22 +197,18 @@ export function updatePassengerState(
 
         addComponent(world, passengerId, ChildOf(elevatorId));
 
-        setActing(world, passengerId, {
+        setComponent(world, passengerId, Acting, {
           duration: 1000,
         });
 
         break;
       }
       case "boarding": {
-        const [destinationId] = getRelationTargets(
-          world,
-          passengerId,
-          DestinedTo
-        );
+        const [destinationId] = getRelationTargets(world, passengerId, GoingTo);
         const [elevatorId] = getRelationTargets(world, passengerId, ChildOf);
 
-        setPassenger(world, passengerId, { state: "riding" });
-        setElevator(world, elevatorId, {
+        setComponent(world, passengerId, Passenger, { state: "riding" });
+        setComponent(world, elevatorId, Elevator, {
           queue: [...Elevator.queue[elevatorId], Floor.index[destinationId]],
         });
 
@@ -173,11 +216,7 @@ export function updatePassengerState(
       }
       case "riding": {
         const [elevatorId] = getRelationTargets(world, passengerId, ChildOf);
-        const [destinationId] = getRelationTargets(
-          world,
-          passengerId,
-          DestinedTo
-        );
+        const [destinationId] = getRelationTargets(world, passengerId, GoingTo);
         const [floorId] = getRelationTargets(world, elevatorId, ChildOf);
 
         if (floorId !== destinationId) {
@@ -188,12 +227,12 @@ export function updatePassengerState(
           break;
         }
 
-        setPassenger(world, passengerId, { state: "exiting" });
+        setComponent(world, passengerId, Passenger, { state: "exiting" });
 
         removeComponent(world, passengerId, ChildOf(elevatorId));
         addComponent(world, passengerId, ChildOf(floorId));
 
-        setActing(world, passengerId, {
+        setComponent(world, passengerId, Acting, {
           duration: 1000,
         });
 
@@ -204,53 +243,78 @@ export function updatePassengerState(
 }
 
 /**
- * Update passenger graphics.
+ * Update index for each passenger on a floor or in an elevator.
+ */
+export function updatePassengerIndex(
+  world: World<{
+    components: {
+      Passenger: Passenger;
+    };
+  }>
+) {
+  const { Passenger } = world.components;
+
+  for (const passengerId of query(world, [Passenger])) {
+    const [parentId] = getRelationTargets(world, passengerId, ChildOf);
+
+    const index = query(world, [Passenger, ChildOf(parentId)]).indexOf(
+      passengerId
+    );
+
+    setComponent(world, passengerId, Passenger, {
+      index: index,
+    });
+  }
+}
+
+/**
+ * Update graphics for each passenger.
  */
 export function updatePassengerGraphics(
   world: World<{
     components: {
-      Passenger: typeof Passenger;
-      Graphical: typeof Graphical;
+      Passenger: Passenger;
+      Graphic: Graphic;
     };
   }>
 ) {
-  const { Passenger, Graphical } = world.components;
+  const { Passenger, Graphic } = world.components;
 
-  for (const passengerId of query(world, [Passenger, Graphical])) {
-    const [locationId] = getRelationTargets(world, passengerId, ChildOf);
+  const size = 8;
+  const gap = 2;
+  const margin = 5;
+  const line = 10;
 
-    const index = query(world, [Passenger, ChildOf(locationId)]).indexOf(
-      passengerId
-    );
+  for (const passengerId of query(world, [Passenger, Graphic])) {
+    const index = Passenger.index[passengerId];
 
-    setGraphical(world, passengerId, {
+    setComponent(world, passengerId, Graphic, {
       position: [
-        5 + (8 + 2) * (index % 10),
-        5 + Math.floor(index / 10) * (8 + 2),
+        margin + (size + gap) * (index % line),
+        margin + Math.floor(index / line) * (size + gap),
       ],
-      size: [8, 8],
-      color: [0, 0, 255, 1],
+      size: [size, size],
     });
 
     switch (Passenger.state[passengerId]) {
       case "waiting":
-        setGraphical(world, passengerId, {
-          color: [255, 100, 100, 1],
+        setComponent(world, passengerId, Graphic, {
+          color: [255, 0, 0, 1],
         });
         break;
       case "boarding":
-        setGraphical(world, passengerId, {
-          color: [200, 200, 255, 1],
+        setComponent(world, passengerId, Graphic, {
+          color: [155, 155, 255, 1],
         });
         break;
       case "riding":
-        setGraphical(world, passengerId, {
-          color: [100, 100, 255, 1],
+        setComponent(world, passengerId, Graphic, {
+          color: [0, 0, 255, 1],
         });
         break;
       case "exiting":
-        setGraphical(world, passengerId, {
-          color: [255, 200, 200, 1],
+        setComponent(world, passengerId, Graphic, {
+          color: [255, 155, 155, 1],
         });
         break;
     }

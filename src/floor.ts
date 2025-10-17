@@ -2,47 +2,61 @@ import {
   addComponent,
   addEntity,
   getRelationTargets,
+  observe,
+  onAdd,
+  onSet,
   query,
+  setComponent,
   type EntityId,
   type World,
 } from "bitecs";
-import { setGraphical, type Graphical } from "./graphic";
-import { ChildOf } from "./shared";
+import { type Graphic } from "./graphic";
+import { ChildOf, type Data } from "./shared";
 
 /**
- * Component to represent the floor of a building.
+ * Floor component.
  */
-export const Floor = {
-  index: [] as number[],
+export type Floor = {
+  index: number[];
 };
 
 /**
- * Add or update Floor component on an entity.
+ * Initialize module.
  */
-export function setFloor(
-  world: World<{ components: { Floor: typeof Floor } }>,
-  entityId: EntityId,
-  data: Partial<{ index: number }>
-) {
-  const { Floor } = world.components;
+export function initialize(world: World<{ components: { Floor: Floor } }>) {
+  const Floor = {
+    index: [],
+  } as Floor;
 
-  addComponent(world, entityId, Floor);
+  world.components.Floor = Floor;
 
-  Floor.index[entityId] = data.index ?? Floor.index[entityId] ?? 0;
+  observe(world, onAdd(Floor), (entityId) => {
+    Floor.index[entityId] = 0;
+  });
+
+  observe(
+    world,
+    onSet(Floor),
+    (floorId: EntityId, data: Partial<Data<Floor>>) => {
+      for (const [key, value] of Object.entries(data)) {
+        Floor[key as keyof Floor][floorId] = value;
+      }
+    }
+  );
 }
 
 /**
- * Update floor graphics.
+ * Update graphics for each floor.
  */
 export function updateFloorGraphics(
   world: World<{
-    components: { Floor: typeof Floor; Graphical: typeof Graphical };
+    components: { Floor: Floor; Graphic: Graphic };
   }>
 ) {
-  const { Floor, Graphical } = world.components;
+  const { Floor, Graphic } = world.components;
 
-  for (const floorId of query(world, [Floor, Graphical])) {
-    let [textId] = query(world, [Graphical, ChildOf(floorId)]).filter(
+  for (const floorId of query(world, [Floor, Graphic])) {
+    let [textId] = query(world, [Graphic, ChildOf(floorId)]).filter(
       (id) => ChildOf(floorId).role[id] === "text"
     );
 
@@ -53,12 +67,12 @@ export function updateFloorGraphics(
     }
 
     const index = Floor.index[floorId];
+    const size = Graphic.size[floorId];
+    const height = 80;
+    const gap = 2;
 
-    setGraphical(world, textId, {
-      position: [
-        Graphical.size[floorId][0] - 60,
-        Graphical.size[floorId][1] / 2 + 6,
-      ],
+    setComponent(world, textId, Graphic, {
+      position: [size[0] - height, size[1] / 2 + 6],
       color: [255, 255, 255, 1],
       font: "20px monospace",
       text: `${index}`,
@@ -66,15 +80,12 @@ export function updateFloorGraphics(
 
     const [buildingId] = getRelationTargets(world, floorId, ChildOf);
 
-    const height = 80;
-    const gap = 2;
-
-    setGraphical(world, floorId, {
+    setComponent(world, floorId, Graphic, {
       position: [
         0,
-        Graphical.size[buildingId][1] - height - gap - (height + gap) * index,
+        Graphic.size[buildingId][1] - height - gap - (height + gap) * index,
       ],
-      size: [Graphical.size[buildingId][0], height],
+      size: [Graphic.size[buildingId][0], height],
       color: [100, 100, 100, 1],
     });
   }

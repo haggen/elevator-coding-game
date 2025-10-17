@@ -1,46 +1,63 @@
 import {
-  addComponent,
+  observe,
+  onAdd,
+  onSet,
   query,
   removeComponent,
-  type EntityId,
   type World,
 } from "bitecs";
-import type { time } from "./shared";
+import { type Time } from "./shared";
 
 /**
- * Component for entities that are performing an action over time.
+ * Acting component.
  */
-export const Acting = {
-  start: [] as number[],
-  duration: [] as number[],
-  completion: [] as number[],
+export type Acting = {
+  start: number[];
+  duration: number[];
+  completion: number[];
 };
 
 /**
- * Add or update Acting component on an entity.
+ * Create the Acting component.
  */
-export function setActing(
-  world: World<{ components: { Acting: typeof Acting }; time: typeof time }>,
-  entityId: EntityId,
-  data: { duration: number }
+export function initialize(
+  world: World<{ components: { Acting: Acting }; time: Time }>
 ) {
-  const { Acting } = world.components;
+  const Acting = {
+    start: [],
+    duration: [],
+    completion: [],
+  } as Acting;
 
-  addComponent(world, entityId, Acting);
+  world.components.Acting = Acting;
 
-  Acting.start[entityId] = world.time.now;
-  Acting.duration[entityId] = data.duration;
-  Acting.completion[entityId] = 0;
+  observe(world, onAdd(Acting), (entityId: number) => {
+    Acting.start[entityId] = world.time.now;
+    Acting.duration[entityId] = 0;
+    Acting.completion[entityId] = 0;
+  });
+
+  observe(
+    world,
+    onSet(Acting),
+    (actorId: number, data: { duration: number }) => {
+      Acting.start[actorId] = world.time.now;
+      Acting.duration[actorId] = data.duration;
+      Acting.completion[actorId] = 0;
+    }
+  );
 }
 
 /**
- * Tick acting data.
+ * Update action progression for each acting entity.
  */
-export function tickActing(
-  world: World<{ components: { Acting: typeof Acting }; time: typeof time }>
+export function updateActingCompletion(
+  world: World<{ components: { Acting: Acting }; time: Time }>
 ) {
-  const { Acting } = world.components;
-  const { delta } = world.time;
+  const {
+    components: { Acting },
+    time: { delta },
+  } = world;
 
   for (const actorId of query(world, [Acting])) {
     Acting.completion[actorId] += delta / Acting.duration[actorId];

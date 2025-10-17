@@ -1,80 +1,108 @@
-import { addComponent, Hierarchy, query, type World } from "bitecs";
-import { ChildOf, time, type Data } from "./shared";
+import {
+  Hierarchy,
+  observe,
+  onAdd,
+  onSet,
+  query,
+  type EntityId,
+  type World,
+} from "bitecs";
+import { ChildOf, type Data, type Time } from "./shared";
 
 /**
- * Rendering stats.
+ * Graphic component.
  */
-export const rendering = {
-  delta: 0,
-  count: 0,
-  size: [800, 600] as [number, number],
+export type Graphic = {
+  position: [number, number][];
+  size: [number, number][];
+  rotation: number[];
+  scale: [number, number][];
+  color: [number, number, number, number][];
+  font: string[];
+  text: string[];
 };
 
 /**
- * Component for entities that have a graphic representation.
+ * Rendering statistics.
  */
-export const Graphical = {
-  position: [] as [number, number][],
-  size: [] as [number, number][],
-  rotation: [] as number[],
-  scale: [] as [number, number][],
-  color: [] as [number, number, number, number][],
-  font: [] as string[],
-  text: [] as string[],
+export type RenderStats = {
+  delta: number;
+  count: number;
+  size: [number, number];
 };
 
 /**
- * Add or update Graphical component on an entity.
+ * Initialize world.
  */
-export function setGraphical(
-  world: World<{ components: { Graphical: typeof Graphical } }>,
-  entityId: number,
-  data: Partial<Data<typeof Graphical>> = {}
+export function initialize(
+  world: World<{ components: { Graphic: Graphic }; rendering: RenderStats }>
 ) {
-  const { Graphical } = world.components;
+  const Graphic = {
+    position: [],
+    size: [],
+    rotation: [],
+    scale: [],
+    color: [],
+    font: [],
+    text: [],
+  } as Graphic;
 
-  addComponent(world, entityId, Graphical);
+  world.components.Graphic = Graphic;
 
-  Graphical.position[entityId] = data.position ??
-    Graphical.position[entityId] ?? [0, 0];
-  Graphical.size[entityId] = data.size ?? Graphical.size[entityId] ?? [0, 0];
-  Graphical.color[entityId] = data.color ??
-    Graphical.color[entityId] ?? [0, 0, 0, 0];
-  Graphical.font[entityId] =
-    data.font ?? Graphical.font[entityId] ?? "12 sans-serif";
-  Graphical.text[entityId] = data.text ?? Graphical.text[entityId] ?? "";
-  Graphical.rotation[entityId] =
-    data.rotation ?? Graphical.rotation[entityId] ?? 0;
-  Graphical.scale[entityId] = data.scale ?? Graphical.scale[entityId] ?? [1, 1];
+  world.rendering = {
+    delta: 0,
+    count: 0,
+    size: [800, 600],
+  } as RenderStats;
+
+  observe(world, onAdd(Graphic), (entityId: EntityId) => {
+    Graphic.position[entityId] = [0, 0];
+    Graphic.size[entityId] = [0, 0];
+    Graphic.color[entityId] = [0, 0, 0, 1];
+    Graphic.font[entityId] = "12 sans-serif";
+    Graphic.text[entityId] = "";
+    Graphic.rotation[entityId] = 0;
+    Graphic.scale[entityId] = [1, 1];
+  });
+
+  observe(
+    world,
+    onSet(Graphic),
+    (graphicId: EntityId, data: Partial<Data<Graphic>>) => {
+      for (const [key, value] of Object.entries(data)) {
+        Graphic[key as keyof Graphic][graphicId] = value;
+      }
+    }
+  );
 }
 
 /**
  * Paint an entity and its children to the given canvas.
  */
 export function paint(
-  ctx: CanvasRenderingContext2D,
-  world: World<{ components: { Graphical: typeof Graphical } }>,
-  entityId: number
+  world: World<{ components: { Graphic: Graphic } }>,
+  entityId: EntityId,
+  ctx: CanvasRenderingContext2D
 ) {
-  const { Graphical } = world.components;
+  const { Graphic } = world.components;
 
   ctx.save();
 
-  ctx.translate(...Graphical.position[entityId]);
-  ctx.rotate(Graphical.rotation[entityId]);
-  ctx.scale(...Graphical.scale[entityId]);
+  ctx.translate(...Graphic.position[entityId]);
+  ctx.rotate(Graphic.rotation[entityId]);
+  ctx.scale(...Graphic.scale[entityId]);
 
-  ctx.font = Graphical.font[entityId];
-  ctx.fillStyle = `rgba(${Graphical.color[entityId].join(", ")})`;
+  ctx.font = Graphic.font[entityId];
+  ctx.fillStyle = `rgba(${Graphic.color[entityId].join(", ")})`;
 
-  if (Graphical.text[entityId]) {
-    ctx.fillText(Graphical.text[entityId], 0, 0);
+  if (Graphic.text[entityId]) {
+    ctx.fillText(Graphic.text[entityId], 0, 0);
   } else {
-    ctx.fillRect(0, 0, ...Graphical.size[entityId]);
+    ctx.fillRect(0, 0, ...Graphic.size[entityId]);
   }
 
-  for (const childId of query(world, [Graphical, ChildOf(entityId)])) {
-    paint(ctx, world, childId);
+  for (const childId of query(world, [Graphic, ChildOf(entityId)])) {
+    paint(world, childId, ctx);
   }
 
   ctx.restore();
@@ -84,12 +112,12 @@ export function paint(
  * Render the world.
  */
 export function render(
-  ctx: CanvasRenderingContext2D,
   world: World<{
-    components: { Graphical: typeof Graphical };
-    time: typeof time;
-    rendering: typeof rendering;
-  }>
+    components: { Graphic: Graphic };
+    time: Time;
+    rendering: RenderStats;
+  }>,
+  ctx: CanvasRenderingContext2D
 ) {
   const start = performance.now();
 
@@ -98,10 +126,10 @@ export function render(
 
   ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
-  const { Graphical } = world.components;
+  const { Graphic } = world.components;
 
-  for (const entityId of query(world, [Graphical, Hierarchy(ChildOf, 0)])) {
-    paint(ctx, world, entityId);
+  for (const entityId of query(world, [Graphic, Hierarchy(ChildOf, 0)])) {
+    paint(world, entityId, ctx);
   }
 
   world.rendering.count += 1;

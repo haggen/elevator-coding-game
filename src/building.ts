@@ -1,37 +1,34 @@
-import { addComponent, query, type World } from "bitecs";
-import { rendering, setGraphical, type Graphical } from "./graphic";
+import { query, setComponent, type World } from "bitecs";
+import { type Graphic, type RenderStats } from "./graphic";
 
 /**
- * Component to represent a building.
+ * Building component.
  */
-export const Building = {};
+export type Building = {};
 
 /**
- * Add Building component to an entity.
+ * Initialize module.
  */
-export function setBuilding(
-  world: World<{ components: { Building: typeof Building } }>,
-  entityId: number
+export function initialize(
+  world: World<{ components: { Building: Building } }>
 ) {
-  const { Building } = world.components;
-
-  addComponent(world, entityId, Building);
+  const Building = {} as Building;
+  world.components.Building = Building;
 }
 
 /**
- * Update building graphics.
+ * Update graphics for each building.
  */
 export function updateBuildingGraphics(
   world: World<{
-    components: { Building: typeof Building; Graphical: typeof Graphical };
-    rendering: typeof rendering;
+    components: { Building: Building; Graphic: Graphic };
+    rendering: RenderStats;
   }>
 ) {
-  const { Building } = world.components;
+  const { Building, Graphic } = world.components;
 
   for (const buildingId of query(world, [Building])) {
-    setGraphical(world, buildingId, {
-      position: [0, 0],
+    setComponent(world, buildingId, Graphic, {
       size: world.rendering.size,
       color: [255, 255, 255, 1],
     });
