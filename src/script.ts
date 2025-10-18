@@ -6,16 +6,17 @@ import { initialize as building, updateBuildingGraphics } from "./building";
 import {
   initialize as elevator,
   updateElevatorClosedState,
+  updateElevatorClosingState,
   updateElevatorDirection,
   updateElevatorGraphics,
   updateElevatorMovingState,
+  updateElevatorOpeningState,
   updateElevatorOpenState,
 } from "./elevator";
 import { initialize as floor, updateFloorGraphics } from "./floor";
-import { initialize as graphic, render } from "./graphic";
+import { getImage, initialize as graphic, render } from "./graphic";
 import {
-  handlePassengerReaping,
-  handlePassengerSpawning,
+  managePassengerLifecycle,
   initialize as passenger,
   updatePassengerGraphics,
   updatePassengerIndex,
@@ -82,15 +83,16 @@ function update(world: World) {
 
   updateActingCompletion(world);
 
-  handlePassengerReaping(world);
-  handlePassengerSpawning(world);
+  managePassengerLifecycle(world);
   updatePassengerIndex(world);
   updatePassengerState(world);
 
   updateElevatorDirection(world);
+  updateElevatorClosingState(world);
   updateElevatorClosedState(world);
-  updateElevatorOpenState(world);
   updateElevatorMovingState(world);
+  updateElevatorOpeningState(world);
+  updateElevatorOpenState(world);
 
   updateBuildingGraphics(world);
   updateFloorGraphics(world);
@@ -111,8 +113,10 @@ const ctx = document
 
 seed(world);
 
-requestAnimationFrame(function step() {
-  update(world);
-  render(world, ctx);
-  requestAnimationFrame(step);
-});
+getImage("./floor-tile.gif").onload = () => {
+  requestAnimationFrame(function step() {
+    update(world);
+    render(world, ctx);
+    requestAnimationFrame(step);
+  });
+};

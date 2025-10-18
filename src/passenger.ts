@@ -66,17 +66,21 @@ export function initialize(
 }
 
 /**
- * Reap passengers that have finished their lifecycle.
+ * Reap old passengers and spawn new ones.
  */
-export function handlePassengerReaping(
+export function managePassengerLifecycle(
   world: World<{
     components: {
       Passenger: Passenger;
+      Elevator: Elevator;
+      Floor: Floor;
       Acting: Acting;
+      Graphic: Graphic;
     };
+    time: Time;
   }>
 ) {
-  const { Passenger, Acting } = world.components;
+  const { Elevator, Passenger, Floor, Acting, Graphic } = world.components;
 
   for (const passengerId of query(world, [Passenger, Not(Acting)])) {
     if (Passenger.state[passengerId] !== "exiting") {
@@ -97,24 +101,6 @@ export function handlePassengerReaping(
 
     removeEntity(world, passengerId);
   }
-}
-
-/**
- * Spawn new passengers.
- */
-export function handlePassengerSpawning(
-  world: World<{
-    components: {
-      Passenger: Passenger;
-      Elevator: Elevator;
-      Floor: Floor;
-      Acting: Acting;
-      Graphic: Graphic;
-    };
-    time: Time;
-  }>
-) {
-  const { Elevator, Passenger, Floor, Acting, Graphic } = world.components;
 
   const passengerIds = query(world, [Passenger]);
 
@@ -122,7 +108,7 @@ export function handlePassengerSpawning(
     return;
   }
 
-  if (random(1000) > 10) {
+  if (random(2000) > 10) {
     return;
   }
 
@@ -280,43 +266,15 @@ export function updatePassengerGraphics(
 ) {
   const { Passenger, Graphic } = world.components;
 
-  const size = 8;
-  const gap = 2;
-  const margin = 5;
-  const line = 10;
+  const size = 64;
 
   for (const passengerId of query(world, [Passenger, Graphic])) {
     const index = Passenger.index[passengerId];
 
     setComponent(world, passengerId, Graphic, {
-      position: [
-        margin + (size + gap) * (index % line),
-        margin + Math.floor(index / line) * (size + gap),
-      ],
+      position: [index * 10, 0],
       size: [size, size],
+      image: "./passenger.gif",
     });
-
-    switch (Passenger.state[passengerId]) {
-      case "waiting":
-        setComponent(world, passengerId, Graphic, {
-          color: [255, 0, 0, 1],
-        });
-        break;
-      case "boarding":
-        setComponent(world, passengerId, Graphic, {
-          color: [155, 155, 255, 1],
-        });
-        break;
-      case "riding":
-        setComponent(world, passengerId, Graphic, {
-          color: [0, 0, 255, 1],
-        });
-        break;
-      case "exiting":
-        setComponent(world, passengerId, Graphic, {
-          color: [255, 155, 155, 1],
-        });
-        break;
-    }
   }
 }

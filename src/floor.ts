@@ -56,27 +56,9 @@ export function updateFloorGraphics(
   const { Floor, Graphic } = world.components;
 
   for (const floorId of query(world, [Floor, Graphic])) {
-    let [textId] = query(world, [Graphic, ChildOf(floorId)]).filter(
-      (id) => ChildOf(floorId).role[id] === "text"
-    );
-
-    if (!textId) {
-      textId = addEntity(world);
-      ChildOf(floorId).role[textId] = "text";
-      addComponent(world, textId, ChildOf(floorId));
-    }
-
     const index = Floor.index[floorId];
-    const size = Graphic.size[floorId];
-    const height = 80;
-    const gap = 2;
-
-    setComponent(world, textId, Graphic, {
-      position: [size[0] - height, size[1] / 2 + 6],
-      color: [255, 255, 255, 1],
-      font: "20px monospace",
-      text: `${index}`,
-    });
+    const height = 64;
+    const gap = 0;
 
     const [buildingId] = getRelationTargets(world, floorId, ChildOf);
 
@@ -86,7 +68,37 @@ export function updateFloorGraphics(
         Graphic.size[buildingId][1] - height - gap - (height + gap) * index,
       ],
       size: [Graphic.size[buildingId][0], height],
-      color: [100, 100, 100, 1],
+      image: "./floor-tile.gif",
+      pattern: "repeat-x",
     });
+
+    const leftWall = query(world, [ChildOf(floorId), Graphic]).find((id) => {
+      return ChildOf(floorId).role[id] === "left-wall";
+    });
+
+    if (leftWall === undefined) {
+      const id = addEntity(world);
+      addComponent(world, id, ChildOf(floorId));
+      ChildOf(floorId).role[id] = "left-wall";
+      setComponent(world, id, Graphic, {
+        size: [height, height],
+        image: "./floor-left-wall.gif",
+      });
+    }
+
+    const rightWall = query(world, [ChildOf(floorId), Graphic]).find((id) => {
+      return ChildOf(floorId).role[id] === "right-wall";
+    });
+
+    if (rightWall === undefined) {
+      const id = addEntity(world);
+      addComponent(world, id, ChildOf(floorId));
+      ChildOf(floorId).role[id] = "right-wall";
+      setComponent(world, id, Graphic, {
+        position: [Graphic.size[buildingId][0] - height, 0],
+        size: [height, height],
+        image: "./floor-right-wall.gif",
+      });
+    }
   }
 }

@@ -20,6 +20,8 @@ export type Graphic = {
   color: [number, number, number, number][];
   font: string[];
   text: string[];
+  image: string[];
+  pattern: string[];
 };
 
 /**
@@ -45,6 +47,8 @@ export function initialize(
     color: [],
     font: [],
     text: [],
+    image: [],
+    pattern: [],
   } as Graphic;
 
   world.components.Graphic = Graphic;
@@ -63,6 +67,8 @@ export function initialize(
     Graphic.text[entityId] = "";
     Graphic.rotation[entityId] = 0;
     Graphic.scale[entityId] = [1, 1];
+    Graphic.image[entityId] = "";
+    Graphic.pattern[entityId] = "";
   });
 
   observe(
@@ -74,6 +80,17 @@ export function initialize(
       }
     }
   );
+}
+
+const images = new Map<string, HTMLImageElement>();
+
+export function getImage(src: string): HTMLImageElement {
+  if (!images.has(src)) {
+    const img = new Image();
+    img.src = src;
+    images.set(src, img);
+  }
+  return images.get(src)!;
 }
 
 /**
@@ -92,12 +109,34 @@ export function paint(
   ctx.rotate(Graphic.rotation[entityId]);
   ctx.scale(...Graphic.scale[entityId]);
 
-  ctx.font = Graphic.font[entityId];
-  ctx.fillStyle = `rgba(${Graphic.color[entityId].join(", ")})`;
-
   if (Graphic.text[entityId]) {
+    ctx.font = Graphic.font[entityId];
     ctx.fillText(Graphic.text[entityId], 0, 0);
+  } else if (Graphic.image[entityId]) {
+    const img = getImage(Graphic.image[entityId]);
+
+    if (Graphic.pattern[entityId]) {
+      const pattern = ctx.createPattern(img, Graphic.pattern[entityId]);
+
+      if (!pattern) {
+        throw new Error(
+          `Failed to create pattern with image ${Graphic.image[entityId]}`
+        );
+      }
+
+      ctx.fillStyle = pattern;
+      ctx.fillRect(0, 0, ...Graphic.size[entityId]);
+    } else {
+      ctx.drawImage(
+        img,
+        0,
+        0,
+        Graphic.size[entityId][0],
+        Graphic.size[entityId][1]
+      );
+    }
   } else {
+    ctx.fillStyle = `rgba(${Graphic.color[entityId].join(", ")})`;
     ctx.fillRect(0, 0, ...Graphic.size[entityId]);
   }
 

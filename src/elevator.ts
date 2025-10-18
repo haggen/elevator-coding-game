@@ -1,6 +1,5 @@
 import {
   addComponent,
-  addEntity,
   createRelation,
   getRelationTargets,
   Not,
@@ -24,9 +23,9 @@ import { ChildOf, type Data, type Time } from "./shared";
  */
 export type Elevator = {
   index: number[];
-  state: ("open" | "closed" | "moving")[];
+  state: ("open" | "opening" | "closing" | "closed" | "moving")[];
   queue: number[][];
-  direction: ("up" | "down" | "stopped")[];
+  direction: ("up" | "down" | "idle")[];
 };
 
 /**
@@ -63,7 +62,7 @@ export function initialize(
     Elevator.index[elevatorId] = 0;
     Elevator.state[elevatorId] = "closed";
     Elevator.queue[elevatorId] = [];
-    Elevator.direction[elevatorId] = "stopped";
+    Elevator.direction[elevatorId] = "idle";
   });
 
   observe(
@@ -94,23 +93,16 @@ export function updateElevatorDirection(
     const [floorId] = getRelationTargets(world, elevatorId, ChildOf);
 
     if (!floorId) {
-      const floorId = query(world, [Floor]).find(
-        (floorId) => Floor.index[floorId] === 0
+      throw new Error(
+        `Expected elevator ${elevatorId} to be on a floor (ChildOf)`
       );
-
-      if (!floorId) {
-        throw new Error("Expected a floor with index 0 to put the elevator on");
-      }
-
-      addComponent(world, elevatorId, ChildOf(floorId));
     }
 
+    const queue = Elevator.queue[elevatorId];
+    const index = Floor.index[floorId];
+
     Elevator.direction[elevatorId] =
-      Elevator.queue[elevatorId].length === 0
-        ? "stopped"
-        : Elevator.queue[elevatorId][0] > Floor.index[floorId]
-        ? "up"
-        : "down";
+      queue.length === 0 ? "idle" : queue[0] > index ? "up" : "down";
   }
 }
 
@@ -145,7 +137,7 @@ export function updateElevatorClosedState(
     // Elevator is already on the target floor.
     if (queue[0] === index) {
       setComponent(world, elevatorId, Elevator, {
-        state: "open",
+        state: "opening",
         queue: queue.slice(1),
       });
 
@@ -205,12 +197,82 @@ export function updateElevatorOpenState(
 
     if (transiting.length === 0) {
       setComponent(world, elevatorId, Elevator, {
-        state: "closed",
+        state: "closing",
       });
       setComponent(world, elevatorId, Acting, {
         duration: 1000,
       });
     }
+  }
+}
+
+/**
+ * Update opening elevators.
+ */
+export function updateElevatorOpeningState(
+  world: World<{
+    components: {
+      Elevator: Elevator;
+      Acting: Acting;
+    };
+  }>
+) {
+  const { Acting, Elevator } = world.components;
+
+  for (const elevatorId of query(world, [Elevator, Not(Acting)])) {
+    if (Elevator.state[elevatorId] !== "opening") {
+      continue;
+    }
+
+    setComponent(world, elevatorId, Elevator, {
+      state: "open",
+    });
+
+    setComponent(world, elevatorId, Acting, {
+      duration: 1000,
+    });
+  }
+}
+
+/**
+ * Update closing elevators.
+ */
+export function updateElevatorClosingState(
+  world: World<{
+    components: {
+      Elevator: Elevator;
+      Acting: Acting;
+      Floor: Floor;
+    };
+  }>
+) {
+  const { Acting, Elevator, Floor } = world.components;
+
+  for (const elevatorId of query(world, [Elevator, Not(Acting)])) {
+    if (Elevator.state[elevatorId] !== "closing") {
+      continue;
+    }
+
+    const [floorId] = getRelationTargets(world, elevatorId, ChildOf);
+    const index = Floor.index[floorId];
+    const queue = Elevator.queue[elevatorId];
+
+    if (queue.length === 0 || queue[0] !== index) {
+      setComponent(world, elevatorId, Elevator, {
+        state: "closed",
+      });
+
+      continue;
+    }
+
+    setComponent(world, elevatorId, Elevator, {
+      state: "opening",
+      queue: queue.slice(1),
+    });
+
+    setComponent(world, elevatorId, Acting, {
+      duration: 1000,
+    });
   }
 }
 
@@ -248,7 +310,7 @@ export function updateElevatorMovingState(
     // Elevator is already on the target floor.
     if (queue[0] === index) {
       setComponent(world, elevatorId, Elevator, {
-        state: "open",
+        state: "opening",
         queue: queue.slice(1),
       });
 
@@ -277,6 +339,7 @@ export function updateElevatorMovingState(
     setComponent(world, elevatorId, Elevator, {
       state: "moving",
     });
+
     setComponent(world, elevatorId, Acting, {
       duration: 1000,
     });
@@ -295,46 +358,25 @@ export function updateElevatorGraphics(
 
   for (const elevatorId of query(world, [Elevator, Graphic])) {
     const [floorId] = getRelationTargets(world, elevatorId, ChildOf);
-    const [, height] = Graphic.size[floorId];
-
-    let [textId] = query(world, [Graphic, ChildOf(elevatorId)]).filter(
-      (id) => ChildOf(elevatorId).role[id] === "text"
-    );
-
-    if (!textId) {
-      console.log("Creating text for elevator", elevatorId);
-      textId = addEntity(world);
-      ChildOf(elevatorId).role[textId] = "text";
-      addComponent(world, textId, ChildOf(elevatorId));
-    }
+    const [, size] = Graphic.size[floorId];
 
     setComponent(world, elevatorId, Graphic, {
       position: [200, 0],
-      size: [120, height],
+      size: [size, size],
     });
 
-    setComponent(world, textId, Graphic, {
-      position: [5, height - 5],
-      font: "12px monospace",
-      text: `${Elevator.state[elevatorId]}, ${Elevator.direction[elevatorId]}`,
-    });
-
-    switch (Elevator.state[elevatorId]) {
-      case "closed":
-        setComponent(world, elevatorId, Graphic, {
-          color: [255, 200, 200, 1],
-        });
+    switch (Elevator.direction[elevatorId]) {
+      case "up":
+        Graphic.image[elevatorId] = "./elevator-up.gif";
         break;
-      case "open":
-        setComponent(world, elevatorId, Graphic, {
-          color: [200, 255, 200, 1],
-        });
+      case "down":
+        Graphic.image[elevatorId] = "./elevator-down.gif";
         break;
-      case "moving":
-        setComponent(world, elevatorId, Graphic, {
-          color: [200, 200, 200, 1],
-        });
+      case "idle":
+        Graphic.image[elevatorId] = "./elevator-idle.gif";
         break;
+      default:
+        Graphic.image[elevatorId] = "";
     }
   }
 }
